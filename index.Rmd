@@ -46,92 +46,272 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 
 # Mining, Classification, Prediction
 
-## Name and EID here
+## Ana Santiago, ass2325
 
 ### Introduction 
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc. See instructions for more information
+I am using the 'Heart' data set which I found on kaggle for my project. This data set is used to predict heart failure in different gender and ages based on a variety of measurements. The main categorical variable that I will be using in this project is 'Sex'. The main numerical variables that I will be using are 'Age', 'Resting BP' (resting blood pressure), 'Cholesterol', 'Max HR'(maximum heart rate), 'Oldpeak' (value of exercise relative to rest, slope), and 'Heart Disease'. Each of these variables measure information about the patient's medical history in order to predict whether they are susceptible to heart failure. The binary variable I will be using is 'Heart Disease' in which a value of 1 indicates heart disease in the patient and a value of 0 indicates no heart disease. In the entire data set, there is a total of 918 observations. Grouping by 'Sex', there are 193 female and 725 male observations. Grouping by 'Heart Disease', there are 410 individuals with no heart disease and 508 individuals with heart disease. 
 
 ```{R}
 library(tidyverse)
 # read your datasets in here, e.g., with read_csv()
+library(dplyr)
+library(cluster)
+library(ggplot2)
 
+heart <- read_csv("~/project2/heart.csv")
+heart.df <- as.data.frame(heart)
+sum(is.na(heart.df))
+na.omit(heart.df)
+head(heart.df)
 # if your dataset needs tidying, do so here
-
+heartnumeric <- heart.df %>% 
+  select(Age,RestingBP,Cholesterol,MaxHR,Oldpeak)
+heartn <- as.data.frame(scale(heartnumeric))
 # any other code here
+str(heart.df)
+#counting observations
+nrow(heart.df) 
+heart.df %>% summarise_all(n_distinct)
+heart.df %>% count(Sex)
+heart.df %>% count(HeartDisease)
 ```
 
 ### Cluster Analysis
 
 ```{R}
 library(cluster)
+library(GGally)
 # clustering code here
+#Silhouette Method to find kmeans 
+sil_width <- vector()
+for (i in 2:10) {
+    kms <- kmeans(heartn, centers = i)
+    sil <- silhouette(kms$cluster, dist(heartn))
+    sil_width[i] <- mean(sil[, 3])}
+ggplot() + geom_line(aes(x = 1:10, y = sil_width)) + 
+    scale_x_continuous(name = "K", breaks = 1:10) + ylab("Average Silhouette")
+
+#Average Silhouette Width
+heart_pam <- heartn %>% pam(k = 3)
+heart_pam$silinfo$avg.width
+
+#PAM analysis
+pam1 <- heart.df %>% pam(k=3) 
+pam1
+heartn %>% mutate(cluster = as.factor(pam1$clustering)) %>% 
+    ggpairs(cols=c("Age", "RestingBP","Cholesterol","MaxHR", "Oldpeak"), aes(color = cluster, alpha = 0.5))
+
+
+pamclust<-heart.df %>% mutate(cluster=as.factor(pam1$clustering))
+pamclust %>% group_by(cluster) %>% summarize_if(is.numeric,mean,na.rm=T)
+heart.df %>% slice(pam1$id.med)
+
+
 ```
 
-Discussion of clustering here
-    
-    
+To start clustering, I first used the Silhouette Method to produce a graph which shows that the optimal K and number of clusters is 3. I then calculated the Average Silhouette Width which came out to be 0.234, which is not as ideal of a structure as desired.
+
+The variable that show the greatest difference between the three clusters is Cholesterol. The rest of the variables demonstrate more similarity between all three clusters however, Resting BP could be deemed as the variable that shows the least difference. We also see that Cluster 3 has the most variables and presence out of all the clusters. The highest correlation present between all the numeric variable is between 'OldPeak' and 'Age' with a value of 0.259. The least correlation present is between the variables 'MaxHR' and 'Age' with a value of -0.382.
+
+When summarizing the cluster by each group we can see the mean values within each cluster in order to best differentiate them from one another. Moreover, the best way to differentiate each cluster is through their 'Cholesterol' values; Cluster 1 having the highest cholesterol values with a mean of 302.67, Cluster 2 having middle cholesterol with a mean of 211.52, and Cluster 3 having a extremely low mean of 2.24. 
+
 ### Dimensionality Reduction with PCA
 
 ```{R}
 # PCA code here
+library(factoextra)
+
+keeps <- c("Age","RestingBP","Cholesterol", "MaxHR", "Oldpeak")
+pcadf1 <- heart.df[keeps]
+
+pca1 <- princomp(pcadf1, cor = T)
+summary(pca1, loadings = T)
+pca1$scores %>% cor %>% round(10)
+pca1_df <- data.frame(PC1 = pca1$scores[, 1], PC2 = pca1$scores[, 
+    2])
+pca1_df <- pca1_df %>% mutate(age = pcadf1$Age)
+
+#Random PC Plot
+ggplot(pca1_df, aes(PC1, PC2)) + geom_point(aes(color = age))
+
+#how many PCs to keep
+eigval <- pca1$sdev^2
+varprop = round(eigval/sum(eigval), 2)
+ggplot() + geom_bar(aes(y = varprop, x = 1:5), stat = "identity") + 
+    xlab("") + geom_path(aes(y = varprop, x = 1:5)) + geom_text(aes(x = 1:5, 
+    y = varprop, label = round(varprop, 2)), vjust = 1, col = "white", 
+    size = 5) + scale_y_continuous(breaks = seq(0, 0.6, 0.2), 
+    labels = scales::percent) + scale_x_continuous(breaks = 1:10)
+round(cumsum(eigval)/sum(eigval), 2)
+eigval
+
+#plotting PC scores kept 
+pcaplot<-data.frame(Name=heart.df$HeartDisease, PC1=pca1$scores[, 1],PC2=pca1$scores[, 2])
+ggplot(pcaplot, aes(PC1, PC2)) + geom_point(aes(color=heart.df$HeartDisease>0.5))
+
+#PC plot using fviz_pca
+fviz_pca(pca1)
 ```
 
-Discussions of PCA here. 
+I ran a bar plot to give the different scores of each group. Using Eigen values and Kaiser's rules, I chose to keep PC1 and PC2 because their eigen values were greater than 1. I plot these and found that 'False' values, indicating no heart disease in the group were lower that true values. From the values obtained in PCA analysis, it can be assumed that PC1 is a 'Age' vs 'MaxHR' axis, indicating that higher scores on PC1 mean a higher higher age value but a lower max heart rate.  Finally, I ran a biplot with the fviz_pca function to visualize the PC scores in a different manner. 
 
 ###  Linear Classifier
 
 ```{R}
 # linear classifier code here
+fit <- glm(HeartDisease ~ Age + RestingBP + Cholesterol + MaxHR + Oldpeak, data = heart.df)
+score <- predict(fit, type = "response")
+score %>% round(3)
+summary(fit$fitted.values)
+
+#Histogram 
+hist(fit$fitted.values, main = "Fit Histogram", xlab = "Probability of Heart Disease", xlim=c(0,1.5),col = "blue")
+
+#Logistic Regression
+heart %>% mutate(score=score) %>% ggplot(aes(Age,HeartDisease))+geom_point(aes(color=score>.5))+
+  geom_smooth(method="glm", se=F,method.args = list(family = "binomial"))+ylim(0,1)+geom_hline(yintercept = .5,lty=2)
+class_diag(score,truth=heart.df$HeartDisease, positive=1)
+
+#Table 
+probability <- predict(fit, type = "response")
+probtable <- table(truth = heart.df$HeartDisease, prediction = as.numeric(probability > 
+    0.5)) %>% addmargins 
+colnames(probtable)[colnames(probtable) == "0"] = "Predicted No HD"
+colnames(probtable)[colnames(probtable) == "1"] = "Predicted HD"
+rownames(probtable)[rownames(probtable) == "0"] = "Observed No HD"
+rownames(probtable)[rownames(probtable) == "1"] = "Observed HD"
+probtable
 ```
 
 ```{R}
 # cross-validation of linear classifier here
+heartcv <- heart.df %>% mutate(HeartDisease = ifelse(HeartDisease == 
+    "FAIL", 0, 1))
+na.omit(heart.df)
+
+keeps2 <- c("HeartDisease","Age","RestingBP","Cholesterol", "MaxHR", "Oldpeak")
+heartcv2 <- heart.df[keeps2]
+set.seed(1234)
+k = 10
+
+data <- sample_frac(heartcv2)
+folds <- rep(1:k, length.out = nrow(heartcv2))
+diags <- NULL
+i = 1
+for(i in 1:k){
+     train <- data[folds != i, ]
+    test <- data[folds == i, ]
+    truth <- test$HeartDisease
+    
+    fit <- glm(HeartDisease ~ Age + RestingBP + Cholesterol + MaxHR + Oldpeak, data = heartcv2, family = "binomial")  
+    probs <- predict(fit, newdata = test, type = "response")  
+    diags <- rbind(diags, class_diag(probs, truth, positive = "True"))
+}
+
+# average performance metrics across all folds
+summarize_all(diags, mean)
 ```
 
-Discussion here
+In my linear classifier, I created a logistic regression as well as a histogram to demonstrate predictions in if an individual would get heart disease. The logistic regression shows that at younger ages, there are more 'FALSE', predicting that there will be less susceptibility for heart disease. A table was created to compared predicted and observed values. The table showed that 71.9% of observed "No Heart Disease" values were predicted correct along with 78.1% of predicted Heart Disease in individuals being correct. These, along with an AUC score of 0.83 are very good and reflect a good prediction system. Furthermore, there seemed to be some trouble with performing the cross validation as a score of zero was produced.
 
 ### Non-Parametric Classifier
 
 ```{R}
 library(caret)
 # non-parametric classifier code here
+knn_fit <- knn3(factor(HeartDisease==1,levels=c("TRUE","FALSE")) ~ Age + RestingBP + Cholesterol + MaxHR + Oldpeak, data=heart.df, k=5)
+y_hat_knn <- predict(knn_fit,heart.df)
+table(truth= factor(heart.df$HeartDisease==1, levels=c("TRUE","FALSE")),
+      prediction= factor(y_hat_knn[,1]>.5, levels=c("TRUE","FALSE"))) %>% addmargins
+class_diag(y_hat_knn[,1],heart.df$HeartDisease, positive=1)
 ```
 
 ```{R}
 # cross-validation of np classifier here
+heart.df1 <- heart.df %>% mutate(HeartDisease = ifelse(HeartDisease == 
+    "No HD", 0, 1))
+heart.df1$outcome<-NULL
+
+
+set.seed(1234)
+k=10
+
+data<-heart.df1[sample(nrow(heart.df1)),] #randomly order rows
+folds<-cut(seq(1:nrow(heart.df1)),breaks=k,labels=F) #create folds
+diags<-NULL
+for(i in 1:k){
+  ## Create training and test sets
+  train<-data[folds!=i,] 
+  test<-data[folds==i,]
+  truth<-test$HeartDisease ## Truth labels for fold i
+  ## Train model on training set (all but fold i)
+  fit1<-knn3(HeartDisease == "True" ~ Age + RestingBP + Cholesterol + MaxHR + Oldpeak, data =train)
+  ## Test model on test set (fold i) 
+  probs<-predict(fit1,newdata = test)
+  ## Get diagnostics for fold i
+  diags<-rbind(diags,class_diag(probs,truth, positive=1))
+}
+summarize_all(diags,mean)
 ```
 
-Discussion
+I used K-nearest neighbors as my non-parametric classification method. Here, correct predictions of heart disease were 80.1% and correct predictions of no heart disease were 76.2%.Compared, to the linear classification model done previously, these scores were higher and thus prediction using this method can be considered to be more effective. Moreover, the AUC score produced was one of 0.87 which is desireable. However, when conducting the cross valudation, an AUC score of 1 was produced which is higher and indicates overfitting. 
 
 
 ### Regression/Numeric Prediction
 
 ```{R}
 # regression model code here
+fit1 <- lm(Age ~ Cholesterol + MaxHR, data = heart.df)  #predict mpg from all other variables
+yhat <- predict(fit1)  #predicted mpg
+
+mean((heart.df$Age - yhat)^2)
 ```
 
 ```{R}
 # cross-validation of regression model here
+set.seed(1234)
+k = 5  #choose number of folds
+data <- heart.df[sample(nrow(heart.df)), ]  #randomly order rows
+folds <- cut(seq(1:nrow(heart.df)), breaks = k, labels = F)  #create folds
+diags <- NULL
+for (i in 1:k) {
+    train <- data[folds != i, ]
+    test <- data[folds == i, ]
+    ## Fit linear regression model to training set
+    fit <- lm(Age ~ Cholesterol + MaxHR, data = train)
+    ## Get predictions/y-hats on test set (fold i)
+    yhat <- predict(fit, newdata = test)
+    ## Compute prediction error (MSE) for fold i
+    diags <- mean((test$Age - yhat)^2)
+}
+mean(diags)
 ```
 
-Discussion
+The MSE value in the regression model is 75.9 and after cross validation it is 72.3. The MSE is lower in the Cross Validation which is good. If it were higher, that would be a significant sign of over fitting but because it is lower we can assume that there is no over fitting.
+
 
 ### Python 
 
 ```{R}
 library(reticulate)
+use_python("/usr/bin/python3", required = F)
+hi <- "I just..."
+
+cat(c(hi, py$hi))
 ```
 
 ```{python}
 # python code here
+bye = "GRADUATED!"
+print(r.hi,bye)
 ```
 
-Discussion
+Here, we used R to produce "I just..." when 'hi' was input. We did the same with Python, but produced "GRADUATED!" with the input 'bye'. Put together the two were able to produce a sentence using both interfaces.
 
 ### Concluding Remarks
 
-Include concluding remarks here, if any
+I truly enjoyed this class! Thank you for a wonderful semester. 
 
 
 
